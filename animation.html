@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cubic Bézier Curve Animation</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    canvas {
+      border: 1px solid black;
+    }
+    .controls {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bezierCanvas" width="400" height="300"></canvas>
+  <div class="controls">
+    <label for="positionSlider">Position: </label>
+    <input type="range" id="positionSlider" class="slide-control" min="0" max="100" value="0">
+  </div>
+  <script>
+    class Vector {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+      }
+
+      subtract(v) {
+        return new Vector(this.x - v.x, this.y - v.y);
+      }
+
+      add(v) {
+        return new Vector(this.x + v.x, this.y + v.y);
+      }
+
+      scale(factor) {
+        return new Vector(this.x * factor, this.y * factor);
+      }
+
+      lerp(v, t) {
+        return this.add(v.subtract(this).scale(t));
+      }
+
+      static fromPoint(p) {
+        return new Vector(p.x, p.y);
+      }
+    }
+
+    class Bezier {
+      constructor(ctx, points) {
+        this.ctx = ctx;
+        this.points = points;
+      }
+
+      drawSkeleton() {
+        this.ctx.strokeStyle = 'gray';
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let i = 1; i < this.points.length; i++) {
+          this.ctx.lineTo(this.points[i].x, this.points[i].y);
+        }
+        this.ctx.stroke();
+      }
+
+      drawCurve() {
+        this.ctx.strokeStyle = 'black';
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.points[0].x, this.points[0].y);
+        this.ctx.bezierCurveTo(this.points[1].x, this.points[1].y, this.points[2].x, this.points[2].y, this.points[3].x, this.points[3].y);
+        this.ctx.stroke();
+      }
+
+      drawPoints() {
+        this.ctx.fillStyle = 'red';
+        this.points.forEach(point => {
+          this.ctx.beginPath();
+          this.ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+          this.ctx.fill();
+        });
+      }
+
+      get(t) {
+        return this.deCasteljau(this.points, t)[0];
+      }
+
+      deCasteljau(points, t) {
+        if (points.length === 1) return points;
+        const newPoints = [];
+        for (let i = 0; i < points.length - 1; i++) {
+          newPoints.push(points[i].lerp(points[i + 1], t));
+        }
+        return this.deCasteljau(newPoints, t).concat(newPoints);
+      }
+
+      drawStruts(t) {
+        const allPoints = this.deCasteljau(this.points, t).reverse();
+        let idx = 0;
+        for (let i = this.points.length - 1; i > 0; i--) {
+          this.ctx.strokeStyle = 'blue';
+          this.ctx.beginPath();
+          for (let j = 0; j < i; j++) {
+            if (j === 0) {
+              this.ctx.moveTo(allPoints[idx + j].x, allPoints[idx + j].y);
+            } else {
+              this.ctx.lineTo(allPoints[idx + j].x, allPoints[idx + j].y);
+            }
+            this.ctx.arc(allPoints[idx + j].x, allPoints[idx + j].y, 5, 0, Math.PI * 2);
+          }
+          this.ctx.stroke();
+          idx += i;
+        }
+      }
+    }
+
+    const canvas = document.getElementById('bezierCanvas');
+    const ctx = canvas.getContext('2d');
+    const points = [
+      new Vector(90, 200),
+      new Vector(25, 100),
+      new Vector(220, 40),
+      new Vector(210, 240)
+    ];
+    const curve = new Bezier(ctx, points);
+    const slider = document.getElementById('positionSlider');
+    let isDragging = false;
+    let draggedPoint = null;
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      curve.drawSkeleton();
+      curve.drawCurve();
+
+      const t = slider.value / 100;
+      if (0 < t && t < 1) {
+        curve.drawStruts(t);
+      }
+
+      curve.drawPoints();
+
+      if (0 < t && t < 1) {
+        const p = curve.get(t);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        const perc = (t * 100) | 0;
+        ctx.fillText(`Sequential interpolation for ${perc}% (t=${t.toFixed(2)})`, 10, 15);
+      }
+
+      requestAnimationFrame(draw);
+    }
+
+    function getMousePos(canvas, evt) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+      };
+    }
+
+    canvas.addEventListener('mousedown', (evt) => {
+      const pos = getMousePos(canvas, evt);
+      points.forEach(point => {
+        const dx = pos.x - point.x;
+        const dy = pos.y - point.y;
+        if (dx * dx + dy * dy < 25) {
+          isDragging = true;
+          draggedPoint = point;
+        }
+      });
+    });
+
+    canvas.addEventListener('mousemove', (evt) => {
+      if (isDragging && draggedPoint) {
+        const pos = getMousePos(canvas, evt);
+        draggedPoint.x = pos.x;
+        draggedPoint.y = pos.y;
+        draw();
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      isDragging = false;
+      draggedPoint = null;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      isDragging = false;
+      draggedPoint = null;
+    });
+
+    slider.addEventListener('input', draw);
+
+    draw();
+  </script>
+</body>
+</html>
